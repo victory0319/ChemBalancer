@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>화학반응식 계수 맞추기</title>
+  <style>
+    body { font-family: Arial; padding: 16px; }
+    .periodic-table {
+      display: grid;
+      grid-template-columns: repeat(10, 50px);
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .element {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      text-align: center;
+      cursor: pointer;
+    }
+    .formula-box {
+      border: 1px solid #bbb;
+      padding: 8px;
+      margin: 6px 0;
+      border-radius: 6px;
+    }
+    .active { border: 2px solid #007bff; }
+    .output { margin-top: 10px; font-size: 18px; }
+  </style>
+</head>
+
+<body>
+  <h1>화학반응식 계수 맞추기</h1>
+  <p>21006 김우승</p>
+
+  <h3>원소 선택</h3>
+  <div id="elementTable" class="periodic-table"></div>
+
+  <hr>
+
+  <h3>반응물</h3>
+  <button onclick="addBox('reactants')">반응물 추가</button>
+  <div id="reactants"></div>
+
+  <h3>생성물</h3>
+  <button onclick="addBox('products')">생성물 추가</button>
+  <div id="products"></div>
+
+  <hr>
+
+  <label>
+    계수 상한:
+    <input id="maxCoeff" type="number" value="8" min="1" style="width:70px">
+  </label>
+  <button onclick="balanceBrute()">균형 맞추기 (Brute Force)</button>
+
+  <div id="result" class="output"></div>
+
+  <script>
+    const elements = ["H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
+                      "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca"];
+
+    const elementTable = document.getElementById('elementTable');
+    let currentBox = null;
+    let boxes = {};
+
+    /* 요소 클릭 시 atom 추가 UI 생성 */
+    elements.forEach((sym, i) => {
+      const d = document.createElement('div');
+      d.className = 'element';
+      d.innerHTML = `${i + 1}<br>${sym}`;
+      d.onclick = () => { if (currentBox) addAtom(currentBox, sym); };
+      elementTable.appendChild(d);
+    });
+
+    function addBox(containerId) {
+      const id = 'b_' + Date.now();
+      boxes[id] = {};
+
+      const box = document.createElement('div');
+      box.className = 'formula-box';
+      box.id = id;
+      box.innerHTML = `<strong>화학식:</strong> <span id="${id}_out">없음</span>`;
+      box.onclick = () => { setActive(id); };
+
+      document.getElementById(containerId).appendChild(box);
+    }
+
+    function setActive(id) {
+      document.querySelectorAll('.formula-box').forEach(b => b.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      currentBox = id;
+    }
+
+    function addAtom(boxId, sym) {
+      if (!boxes[boxId][sym]) boxes[boxId][sym] = 0;
+      boxes[boxId][sym]++;
+      renderBox(boxId);
+    }
+
+    function renderBox(id) {
+      const data = boxes[id];
+      let s = '';
+
+      for (const k in data) {
+        s += k + (data[k] > 1 ? `<sub>${data[k]}</sub>` : '');
+      }
+      document.getElementById(id + '_out').innerHTML = s || '없음';
+    }
+
+    /* ----------- Brute Force 계수 탐색 함수 ----------- */
+
+    function gatherSide(containerId) {
+      const arr = [];
+      document.querySelectorAll('#' + containerId + ' .formula-box')
+        .forEach(b => arr.push(boxes[b.id] || {}));
+      return arr;
+    }
+
+    function elemCountsOfSide(side, coeffs) {
+      const counts = {};
+      for (let i = 0; i < side.length; i++) {
+        const f = side[i];
+        const c = coeffs[i];
+
+        for (const el in f) {
+          counts[el] = (counts[el] || 0) + f[el] * c;
+        }
+      }
+      return counts;
+    }
+
+    function equalCounts(a, b) {
+      const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+      for (const k of keys) {
+        if ((a[k] || 0) !== (b[k] || 0)) return false;
+      }
+      return true;
+    }
+
+    function balanceBrute() {
+      const R = gatherSide('reactants');
+      const P = gatherSide('products');
+
+      if (R.length === 0 || P.length === 0) {
+        alert('반응물/생성물이 각각 하나 이상 필요합니다.');
+        return;
+      }
+
+      const maxC = parseInt(document.getElementById('maxCoeff').value) || 8;
+      const resultDiv = document.getElementById('result');
+      resultDiv.textContent = '탐색 중... 가능한 조합을 찾는 중입니다.';
+
+      const rCoeffs = new Array(R.length).fill(1);
+      const pCoeffs = new Array(P.length).fill(1);
+      let found = null;
+
+      /* --- 재귀적 brute force 루프 --- */
+      function recur(idxR) {
+        if (found) return;
+
+        if (idxR === R.length) {
+          function recurP(idxP) {
+            if (found) return;
+
+            if (idxP === P.length) {
+              const left = elemCountsOfSide(R, rCoeffs);
+              const right = elemCountsOfSide(P, pCoeffs);
+
+              if (equalCounts(left, right)) {
+                found = { r: rCoeffs.slice(), p: pCoeffs.slice() };
+              }
+              return;
+            }
+
+            for (let v = 1; v <= maxC; v++) {
+              pCoeffs[idxP] = v;
+              recurP(idxP + 1);
+              if (found) return;
+            }
+          }
+          recurP(0);
+          return;
+        }
+
+        for (let v = 1; v <= maxC; v++) {
+          rCoeffs[idxR] = v;
+          recur(idxR + 1);
+          if (found) return;
+        }
+      }
+
+      recur(0);
+
+      if (found) {
+        const left = found.r
+          .map((c, i) => (c > 1 ? c + ' ' : '') + formulaToString(R[i]))
+          .join(' + ');
+
+        const right = found.p
+          .map((c, i) => (c > 1 ? c + ' ' : '') + formulaToString(P[i]))
+          .join(' + ');
+
+        resultDiv.innerHTML = `결과: ${left} → ${right}`;
+      } else {
+        resultDiv.textContent = `해를 찾지 못함 (계수 상한 ${maxC} 내)`;
+      }
+    }
+
+    function formulaToString(f) {
+      let s = '';
+      for (const el in f) {
+        s += el + (f[el] > 1 ? `<sub>${f[el]}</sub>` : '');
+      }
+      return s || '없음';
+    }
+  </script>
+</body>
+</html>
